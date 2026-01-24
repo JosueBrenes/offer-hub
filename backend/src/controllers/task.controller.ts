@@ -5,9 +5,9 @@
 
 import { NextFunction, Request, Response } from "express";
 import { taskService } from "@/services/task.service";
-import { CreateTaskRecordDTO } from "@/types/task.types";
+import { CreateTaskRecordDTO, UpdateTaskRatingDTO } from "@/types/task.types";
 import { AuthenticatedRequest } from "@/types/auth.types";
-import { validateCreateTaskRecord } from "@/validators/task.validator";
+import { validateCreateTaskRecord, validateUpdateTaskRating } from "@/validators/task.validator";
 import { AppError, ValidationError } from "@/utils/AppError";
 
 /**
@@ -220,6 +220,96 @@ export async function getFreelancerTaskRecords(
       data: {
         taskRecords,
         count: taskRecords.length
+      },
+      metadata: {
+        timestamp: new Date().toISOString(),
+        requestId: authReq.securityContext?.requestId || 'unknown',
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Update task rating for a completed task
+ * @route PATCH /api/task-records/:recordId/rating
+ * @param req - Express request object with authenticated user
+ * @param res - Express response object
+ * @param next - Express next function
+ *
+ * Expected request body:
+ * {
+ *   "rating": "number (required) - Integer between 1 and 5",
+ *   "comment": "string (optional) - Comment max 500 characters"
+ * }
+ *
+ * Response format:
+ * {
+ *   "success": true,
+ *   "message": "Task rating updated successfully",
+ *   "data": {
+ *     "taskRecord": {
+ *       "id": "string",
+ *       "project_id": "string",
+ *       "freelancer_id": "string",
+ *       "client_id": "string",
+ *       "completed": boolean,
+ *       "rating": number,
+ *       "rating_comment": "string",
+ *       "created_at": "string",
+ *       "updated_at": "string"
+ *     }
+ *   },
+ *   "metadata": {
+ *     "timestamp": "string",
+ *     "requestId": "string"
+ *   }
+ * }
+ */
+export async function updateTaskRatingHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    
+    // Ensure user is authenticated
+    if (!authReq.user) {
+      return next(new AppError("Authentication required", 401));
+    }
+
+    const { recordId } = req.params;
+    const clientId = authReq.user.id;
+    const requestData = req.body as UpdateTaskRatingDTO;
+
+    // Validate recordId is provided
+    if (!recordId) {
+      return next(new ValidationError("Task record ID is required"));
+    }
+
+    // Validate request body
+    const validationResult = validateUpdateTaskRating(requestData);
+    
+    if (!validationResult.success) {
+      const errorMessages = validationResult.error.issues.map((err: any) => 
+        `${err.path.join('.')}: ${err.message}`
+      ).join(', ');
+      
+      return next(new ValidationError(`Validation failed: ${errorMessages}`));
+    }
+
+    // Update task rating
+    const taskRecord = await taskService.updateTaskRating(recordId, validationResult.data, clientId);
+
+    // Build success response
+    res.status(200).json({
+      success: true,
+      message: "Task rating updated successfully",
+      data: {
+        taskRecord
       },
       metadata: {
         timestamp: new Date().toISOString(),
