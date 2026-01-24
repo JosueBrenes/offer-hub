@@ -4,7 +4,7 @@
  */
 
 import { supabase } from "@/lib/supabase/supabase";
-import { TaskRecord, CreateTaskRecordDTO, BlockchainTaskResult } from "@/types/task.types";
+import { TaskRecord, CreateTaskRecordDTO, UpdateTaskRatingDTO, BlockchainTaskResult } from "@/types/task.types";
 import { Project } from "@/types/project.types";
 import { AppError, ValidationError, ConflictError, NotFoundError, AuthorizationError } from "@/utils/AppError";
 import { TaskRecordService } from "@/blockchain/task-record.service";
@@ -190,6 +190,70 @@ class TaskService {
     }
 
     return taskRecords as TaskRecord[];
+  }
+
+  /**
+   * Update task rating for a completed task
+   * @param recordId - Task record ID to update
+   * @param data - Rating data (rating and optional comment)
+   * @param clientId - ID of the client updating the rating
+   * @returns Updated task record
+   */
+  async updateTaskRating(recordId: string, data: UpdateTaskRatingDTO, clientId: string): Promise<TaskRecord> {
+    const { rating, comment } = data;
+
+    // Validate task record exists
+    const { data: taskRecord, error: fetchError } = await supabase
+      .from("task_records")
+      .select("*")
+      .eq("id", recordId)
+      .single();
+
+    if (fetchError || !taskRecord) {
+      if (fetchError?.code === 'PGRST116') {
+        throw new NotFoundError("Task record not found");
+      }
+      throw new AppError(`Database error: ${fetchError?.message || 'Unknown error'}`, 500);
+    }
+
+    // Validate requester is the task client
+    if (taskRecord.client_id !== clientId) {
+      throw new AuthorizationError("Only the project client can rate the task");
+    }
+
+    // Validate rating not already set (prevent changes)
+    if (taskRecord.rating !== null && taskRecord.rating !== undefined) {
+      throw new ConflictError("Rating has already been set and cannot be changed");
+    }
+
+    // Validate task is completed (only completed tasks can be rated)
+    if (!taskRecord.completed) {
+      throw new ValidationError("Only completed tasks can be rated");
+    }
+
+    // Update rating and comment
+    const updateData: { rating: number; rating_comment?: string | null; updated_at: string } = {
+      rating,
+      updated_at: new Date().toISOString()
+    };
+
+    if (comment !== undefined) {
+      // Convert empty string to null to satisfy database constraint
+      updateData.rating_comment = comment && comment.trim().length > 0 ? comment.trim() : null;
+    }
+
+    const { data: updatedRecord, error: updateError } = await supabase
+      .from("task_records")
+      .update(updateData)
+      .eq("id", recordId)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw new AppError(`Failed to update task rating: ${updateError.message}`, 500);
+    }
+
+    return updatedRecord as TaskRecord;
   }
 }
 
