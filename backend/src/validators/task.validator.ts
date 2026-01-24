@@ -12,3 +12,19 @@ export type CreateTaskRecordInput = z.infer<typeof createTaskRecordSchema>;
 export const validateCreateTaskRecord = (data: unknown) => {
   return createTaskRecordSchema.safeParse(data);
 };
+
+export const updateTaskRatingSchema = z.object({
+  rating: z.number()
+    .int('Rating must be an integer')
+    .min(1, 'Rating must be between 1 and 5')
+    .max(5, 'Rating must be between 1 and 5'),
+  comment: z.string()
+    .max(500, 'Comment must not exceed 500 characters')
+    .optional()
+});
+
+export type UpdateTaskRatingInput = z.infer<typeof updateTaskRatingSchema>;
+
+export const validateUpdateTaskRating = (data: unknown) => {
+  return updateTaskRatingSchema.safeParse(data);
+};
